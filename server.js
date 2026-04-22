@@ -363,6 +363,76 @@ function estimateBodyMetrics({ heightCm, weightKg, age, gender, activityLevel })
   return { bmi, bmr, tdee, activityFactor };
 }
 
+async function validateAnalyzerImage({ imageBase64, mimeType, expectedType }) {
+  if (!openai) {
+    return {
+      isValid: false,
+      reason: 'OpenAI API 키가 없어 이미지 유형 검증을 수행할 수 없습니다.',
+      confidence: 0,
+    };
+  }
+
+  const modeText =
+    expectedType === 'body'
+      ? '전신(머리부터 발끝까지 대부분이 보이는 단일 인물)'
+      : '정면 얼굴(얼굴 중심, 피부 상태 확인 가능한 해상도)';
+
+  const response = await openai.responses.create({
+    model: OPENAI_MODEL,
+    input: [
+      {
+        role: 'system',
+        content:
+          '너는 이미지 적합성 검증기다. 분석 목적에 맞는 사진인지 엄격히 판단하고 JSON만 반환한다.',
+      },
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'input_text',
+            text: [
+              `요구 유형: ${modeText}`,
+              '판단 규칙:',
+              '- 조건 미달이면 무조건 isValid=false',
+              '- 애매하면 isValid=false',
+              '- 풍경/음식/사물/텍스트 이미지면 false',
+              '- reason은 한국어로 짧고 구체적으로',
+            ].join('\n'),
+          },
+          {
+            type: 'input_image',
+            image_url: `data:${mimeType};base64,${imageBase64}`,
+          },
+        ],
+      },
+    ],
+    text: {
+      format: {
+        type: 'json_schema',
+        name: 'image_validation_result',
+        schema: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            isValid: { type: 'boolean' },
+            confidence: { type: 'number', minimum: 0, maximum: 1 },
+            reason: { type: 'string' },
+          },
+          required: ['isValid', 'confidence', 'reason'],
+        },
+      },
+    },
+    temperature: 0,
+  });
+
+  const parsed = JSON.parse(response.output_text || '{}');
+  return {
+    isValid: Boolean(parsed.isValid),
+    confidence: Number(parsed.confidence || 0),
+    reason: String(parsed.reason || '이미지 판별에 실패했습니다.'),
+  };
+}
+
 app.get('/api/health', (req, res) => {
   res.json({
     ok: true,
@@ -510,6 +580,17 @@ app.post('/api/body-analyze', upload.single('image'), async (req, res) => {
     const imageBase64 = req.file.buffer.toString('base64');
     const mimeType = req.file.mimetype || 'image/jpeg';
 
+    const imageValidation = await validateAnalyzerImage({
+      imageBase64,
+      mimeType,
+      expectedType: 'body',
+    });
+    if (!imageValidation.isValid || imageValidation.confidence < 0.7) {
+      return res.status(400).json({
+        error: `체형 분석용 사진에 전신사진을 올리지 않았습니다. 다시 제대로 된 사진을 넣고 다시 해주세요. (판별 사유: ${imageValidation.reason})`,
+      });
+    }
+
     const systemPrompt = [
       '너는 체형 분석 코치다.',
       '반드시 한국어로 답한다.',
@@ -589,6 +670,17 @@ app.post('/api/skin-analyze', upload.single('image'), async (req, res) => {
 
     const imageBase64 = req.file.buffer.toString('base64');
     const mimeType = req.file.mimetype || 'image/jpeg';
+
+    const imageValidation = await validateAnalyzerImage({
+      imageBase64,
+      mimeType,
+      expectedType: 'face',
+    });
+    if (!imageValidation.isValid || imageValidation.confidence < 0.7) {
+      return res.status(400).json({
+        error: `피부 분석용 사진에 얼굴사진을 올리지 않았습니다. 다시 제대로 된 사진을 넣고 다시 해주세요. (판별 사유: ${imageValidation.reason})`,
+      });
+    }
 
     const systemPrompt = [
       '너는 피부 분석 코치다.',
