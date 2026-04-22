@@ -114,6 +114,11 @@ body {
   grid-column: 1 / -1;
 }
 
+#skin-concern,
+#skin-routine {
+  grid-column: 1 / -1;
+}
+
 .analyzer-actions {
   display: grid;
   grid-template-columns: 1fr 1fr;

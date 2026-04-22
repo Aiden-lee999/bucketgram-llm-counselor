@@ -571,6 +571,74 @@ app.post('/api/body-analyze', upload.single('image'), async (req, res) => {
   }
 });
 
+app.post('/api/skin-analyze', upload.single('image'), async (req, res) => {
+  try {
+    const hasImage = Boolean(req.file?.buffer?.length);
+    if (!hasImage) {
+      return res.status(400).json({ error: '피부 분석용 얼굴 이미지를 업로드해주세요.' });
+    }
+
+    if (!openai) {
+      return res.status(400).json({ error: 'OpenAI API 키가 설정되어야 피부 분석을 사용할 수 있습니다.' });
+    }
+
+    const age = String(req.body.age || '').trim();
+    const skinType = String(req.body.skinType || '').trim();
+    const concerns = String(req.body.concerns || '').trim();
+    const currentRoutine = String(req.body.currentRoutine || '').trim();
+
+    const imageBase64 = req.file.buffer.toString('base64');
+    const mimeType = req.file.mimetype || 'image/jpeg';
+
+    const systemPrompt = [
+      '너는 피부 분석 코치다.',
+      '반드시 한국어로 답한다.',
+      '의료 진단, 질병 단정, 치료 처방은 하지 않는다.',
+      '사진에서 확인 가능한 정보와 사용자 입력을 구분해서 설명한다.',
+      '확실하지 않은 부분은 반드시 추정이라고 표시한다.',
+      '답변 형식: 1) 피부 요약 2) 관찰 포인트 3) 문제 우선순위 4) 아침/저녁 루틴 5) 주간 관리 6) 주의사항.',
+      '외모 비하, 자극적인 표현을 금지한다.',
+    ].join('\n');
+
+    const userText = [
+      '아래 정보와 얼굴 사진을 바탕으로 피부 상태를 분석해줘.',
+      `- 나이: ${age || '미입력'}`,
+      `- 사용자 인지 피부타입: ${skinType || '미입력'}`,
+      `- 주요 고민: ${concerns || '미입력'}`,
+      `- 현재 루틴: ${currentRoutine || '미입력'}`,
+      '',
+      '요청:',
+      '- 수분/유분 밸런스, 모공, 톤 균일도, 민감도 징후를 관찰 기준으로 설명',
+      '- 아침/저녁 루틴을 단계별로 구체화',
+      '- 성분 카테고리(예: 나이아신아마이드, 세라마이드 등) 중심으로 추천',
+      '- 2주/4주 체크포인트를 제시',
+    ].join('\n');
+
+    const response = await openai.responses.create({
+      model: OPENAI_MODEL,
+      input: [
+        { role: 'system', content: systemPrompt },
+        {
+          role: 'user',
+          content: [
+            { type: 'input_text', text: userText },
+            { type: 'input_image', image_url: `data:${mimeType};base64,${imageBase64}` },
+          ],
+        },
+      ],
+      temperature: 0.3,
+    });
+
+    const analysis = response.output_text || '피부 분석 결과를 생성하지 못했습니다.';
+    return res.json({ analysis });
+  } catch (err) {
+    if (err?.code === 'LIMIT_FILE_SIZE') {
+      return res.status(400).json({ error: '이미지 파일은 4MB 이하만 업로드할 수 있습니다.' });
+    }
+    return res.status(500).json({ error: `피부 분석 실패: ${err.message}` });
+  }
+});
+
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });

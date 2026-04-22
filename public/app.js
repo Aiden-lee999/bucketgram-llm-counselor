@@ -2,7 +2,6 @@ const chatLog = document.getElementById('chat-log');
 const form = document.getElementById('chat-form');
 const input = document.getElementById('message-input');
 const sendBtn = document.getElementById('send-btn');
-const crawlBtn = document.getElementById('crawl-btn');
 const attachBtn = document.getElementById('attach-btn');
 const imageInput = document.getElementById('image-input');
 const attachmentPreview = document.getElementById('attachment-preview');
@@ -18,6 +17,14 @@ const bodyGender = document.getElementById('body-gender');
 const bodyActivity = document.getElementById('body-activity');
 const bodyPain = document.getElementById('body-pain');
 const bodyGoal = document.getElementById('body-goal');
+const skinImageInput = document.getElementById('skin-image-input');
+const skinImagePreview = document.getElementById('skin-image-preview');
+const skinUploadBtn = document.getElementById('skin-upload-btn');
+const skinAnalyzeBtn = document.getElementById('skin-analyze-btn');
+const skinAge = document.getElementById('skin-age');
+const skinType = document.getElementById('skin-type');
+const skinConcern = document.getElementById('skin-concern');
+const skinRoutine = document.getElementById('skin-routine');
 
 const STORAGE_KEY = 'bucketgram.chat.messages.v1';
 const DEFAULT_ASSISTANT_MESSAGE =
@@ -25,6 +32,7 @@ const DEFAULT_ASSISTANT_MESSAGE =
 
 let attachedImageFile = null;
 let bodyImageFile = null;
+let skinImageFile = null;
 let isPending = false;
 
 const messages = [];
@@ -179,6 +187,57 @@ async function analyzeBodyType() {
   }
 }
 
+async function analyzeSkinType() {
+  if (!skinImageFile) {
+    messages.push({ role: 'assistant', text: '피부 분석을 위해 정면 얼굴 사진 1장을 먼저 선택해주세요.' });
+    syncView();
+    return;
+  }
+
+  skinAnalyzeBtn.disabled = true;
+  skinUploadBtn.disabled = true;
+  isPending = true;
+
+  const descriptor = [
+    `나이: ${skinAge.value || '미입력'}`,
+    `피부타입: ${skinType.value || '미입력'}`,
+    `주요고민: ${skinConcern.value || '미입력'}`,
+    `현재루틴: ${skinRoutine.value || '미입력'}`,
+  ].join(', ');
+
+  messages.push({ role: 'user', text: `[AI 피부분석 요청] ${descriptor}` });
+  syncView();
+
+  try {
+    const formData = new FormData();
+    formData.append('image', skinImageFile);
+    formData.append('age', skinAge.value || '');
+    formData.append('skinType', skinType.value || '');
+    formData.append('concerns', skinConcern.value || '');
+    formData.append('currentRoutine', skinRoutine.value || '');
+
+    const res = await fetch('/api/skin-analyze', {
+      method: 'POST',
+      body: formData,
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.error || '피부 분석 요청 실패');
+    }
+
+    messages.push({ role: 'assistant', text: data.analysis || '피부 분석 결과를 생성하지 못했습니다.' });
+    syncView();
+  } catch (err) {
+    messages.push({ role: 'assistant', text: `피부 분석 오류: ${err.message}` });
+    syncView();
+  } finally {
+    isPending = false;
+    skinAnalyzeBtn.disabled = false;
+    skinUploadBtn.disabled = false;
+    syncView();
+  }
+}
+
 form.addEventListener('submit', async (e) => {
   e.preventDefault();
   const text = input.value.trim();
@@ -256,31 +315,44 @@ bodyImageInput.addEventListener('change', () => {
 
 bodyAnalyzeBtn.addEventListener('click', analyzeBodyType);
 
+skinUploadBtn.addEventListener('click', () => {
+  skinImageInput.click();
+});
+
+skinImageInput.addEventListener('change', () => {
+  const file = skinImageInput.files?.[0];
+  if (!file) return;
+
+  if (!file.type.startsWith('image/')) {
+    skinImagePreview.innerHTML = '<span>이미지 파일만 첨부할 수 있습니다.</span>';
+    skinImagePreview.classList.remove('hidden');
+    skinImageInput.value = '';
+    skinImageFile = null;
+    return;
+  }
+
+  skinImageFile = file;
+  const safeName = file.name.replace(/[<>]/g, '');
+  const sizeMB = (file.size / (1024 * 1024)).toFixed(2);
+  skinImagePreview.innerHTML = `<span>${safeName} (${sizeMB}MB)</span><button type="button" id="remove-skin-image-btn" class="remove-image-btn">삭제</button>`;
+  skinImagePreview.classList.remove('hidden');
+
+  const removeBtn = document.getElementById('remove-skin-image-btn');
+  if (removeBtn) {
+    removeBtn.addEventListener('click', () => {
+      skinImageFile = null;
+      skinImageInput.value = '';
+      skinImagePreview.innerHTML = '';
+      skinImagePreview.classList.add('hidden');
+    });
+  }
+});
+
+skinAnalyzeBtn.addEventListener('click', analyzeSkinType);
+
 input.addEventListener('input', () => {
   input.style.height = '48px';
   input.style.height = `${Math.min(input.scrollHeight, 180)}px`;
-});
-
-crawlBtn.addEventListener('click', async () => {
-  crawlBtn.disabled = true;
-  crawlBtn.textContent = '수집 중...';
-  try {
-    const res = await fetch('/api/crawl', { method: 'POST' });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || '크롤링 실패');
-    messages.push({
-      role: 'assistant',
-      text: `버킷그램 데이터 수집 완료: 실제 상품 ${data.productCount}개를 인덱싱했습니다.`,
-    });
-    syncView();
-    await refreshMeta();
-  } catch (err) {
-    messages.push({ role: 'assistant', text: `크롤링 오류: ${err.message}` });
-    syncView();
-  } finally {
-    crawlBtn.disabled = false;
-    crawlBtn.textContent = '버킷그램 데이터 새로 수집';
-  }
 });
 
 newChatBtn.addEventListener('click', () => {
