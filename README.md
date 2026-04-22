@@ -58,6 +58,27 @@ npx vercel env add OPENAI_MODEL production
 - Vercel Serverless 환경에서는 장시간 크롤링(`POST /api/crawl`)이 타임아웃될 수 있습니다.
 - 배포 전에 로컬에서 `npm run crawl`로 `data/products_index.json`을 갱신한 뒤 배포하는 방식을 권장합니다.
 
+## Git 기반 자동 배포 (권장)
+1. GitHub 저장소 생성 및 push
+```bash
+git init
+git add .
+git commit -m "init"
+gh repo create <repo-name> --private --source=. --remote=origin --push
+```
+
+2. Vercel 프로젝트를 Git 저장소에 연결
+```bash
+npx vercel git connect https://github.com/<owner>/<repo-name>.git
+```
+
+3. 이후에는 `main` 브랜치 push 시 자동으로 Production 배포됨
+```bash
+git add .
+git commit -m "chore: update"
+git push origin main
+```
+
 ## 주의
 - 사이트 구조 변경 시 크롤러 정규식/선택자를 업데이트해야 합니다.
 - 의료 효능을 단정하는 표현은 피하고, 구매 가이드 중심 답변을 권장합니다.
